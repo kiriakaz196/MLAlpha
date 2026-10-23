@@ -1,0 +1,47 @@
+{
+  "dataset": "data\\mock_credit_applications.csv",
+  "rows": 24000,
+  "synthetic_data_warning": true,
+  "default_rate": 0.2557083333333333,
+  "roc_auc": 0.7499283200477365,
+  "average_precision": 0.5184636159287765,
+  "brier_score": 0.15946392535855083,
+  "threshold_for_demo_classification": 0.5,
+  "confusion_matrix_labels_0_1": [
+    [
+      3353,
+      220
+    ],
+    [
+      862,
+      365
+    ]
+  ],
+  "classification_report": {
+    "0": {
+      "precision": 0.7954922894424674,
+      "recall": 0.938427092079485,
+      "f1-score": 0.8610683102208526,
+      "support": 3573.0
+    },
+    "1": {
+      "precision": 0.6239316239316239,
+      "recall": 0.2974735126324368,
+      "f1-score": 0.40286975717439294,
+      "support": 1227.0
+    },
+    "accuracy": 0.7745833333333333,
+    "macro avg": {
+      "precision": 0.7097119566870457,
+      "recall": 0.6179503023559609,
+      "f1-score": 0.6319690336976228,
+      "support": 4800.0
+    },
+    "weighted avg": {
+      "precision": 0.751637094321258,
+      "recall": 0.7745833333333333,
+      "f1-score": 0.7439413050983514,
+      "support": 4800.0
+    }
+  }
+}

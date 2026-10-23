@@ -1,0 +1,33 @@
+{
+  "features": [
+    "amount",
+    "term_months",
+    "revenue",
+    "net_profit",
+    "employees",
+    "profit_margin",
+    "business_age_months",
+    "payment_to_monthly_revenue",
+    "revenue_discrepancy",
+    "debt_load",
+    "overdue_days",
+    "credit_history_months",
+    "tax_debt",
+    "product",
+    "legal_form",
+    "industry",
+    "collateral",
+    "mass_address",
+    "unreliable",
+    "active"
+  ],
+  "categorical_features": [
+    "product",
+    "legal_form",
+    "industry",
+    "collateral",
+    "mass_address",
+    "unreliable",
+    "active"
+  ]
+}
