@@ -96,6 +96,37 @@ def main():
         precision_score,
     )
 
+    from sklearn.metrics import f1_score
+
+    print("\nThreshold analysis:")
+    print(
+        f"{'Threshold':>10} | {'Precision':>9} | {'Recall':>7} | "
+        f"{'F1':>6} | {'FN':>6} | {'FP':>6}"
+    )
+    print("-" * 62)
+
+    for threshold in [0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50]:
+        threshold_predictions = (probabilities >= threshold).astype(int)
+
+        precision = precision_score(
+            y_test, threshold_predictions, zero_division=0
+        )
+        recall = recall_score(
+            y_test, threshold_predictions, zero_division=0
+        )
+        f1 = f1_score(
+            y_test, threshold_predictions, zero_division=0
+        )
+
+        tn, fp, fn, tp = confusion_matrix(
+            y_test, threshold_predictions, labels=[0, 1]
+        ).ravel()
+
+        print(
+            f"{threshold:10.2f} | {precision:9.3f} | {recall:7.3f} | "
+            f"{f1:6.3f} | {fn:6d} | {fp:6d}"
+        )
+
     predictions = (probabilities >= 0.5).astype(int)
 
     print("ROC-AUC:", roc_auc_score(y_test, probabilities))

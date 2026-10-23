@@ -14,7 +14,7 @@ except ImportError:  # running this file directly from the ml directory
 RNG_SEED = 20261023
 
 
-def generate_dataset(n: int = 12000, seed: int = 20261023) -> pd.DataFrame:
+def generate_dataset(n: int = 24000, seed: int = 20261023) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
 
     def sigmoid(x):
