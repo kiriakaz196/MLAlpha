@@ -28,6 +28,12 @@ def generate_dataset(n: int = 24000, seed: int = 20261023) -> pd.DataFrame:
     # 1. Профиль компании и взаимосвязанные финансовые данные
     # ---------------------------------------------------------
 
+    # Скрытое "качество бизнеса": менеджмент, устойчивость спроса,
+    # добросовестность собственника. НЕ наблюдается напрямую и не
+    # попадает в датасет. Наблюдаемые признаки ниже — зашумлённые
+    # следствия этого фактора, как в реальности.
+    business_quality = rng.normal(0.0, 1.0, n)
+
     # Размер компании: микро-, малый и средний бизнес.
     business_size = rng.choice(
         ["micro", "small", "medium"],
@@ -90,11 +96,14 @@ def generate_dataset(n: int = 24000, seed: int = 20261023) -> pd.DataFrame:
     )
 
     # Молодому бизнесу немного сложнее поддерживать стабильную прибыль.
+    # Качество бизнеса (скрытый фактор) просвечивает через маржу,
+    # но с большим шумом — маржа не заменяет сам фактор.
     young_business = business_age_months < 18
 
     profit_margin = (
         base_margin
-        + rng.normal(0, 0.085, n)
+        + 0.06 * business_quality
+        + rng.normal(0, 0.095, n)
         - 0.035 * young_business
     )
     profit_margin = np.clip(profit_margin, -0.50, 0.45)
@@ -137,12 +146,14 @@ def generate_dataset(n: int = 24000, seed: int = 20261023) -> pd.DataFrame:
     # 2. Долговая нагрузка и история платежей
     # ---------------------------------------------------------
 
-    # Существующая долговая нагрузка частично связана с размером кредита
-    # и прибыльностью. Это условная синтетическая зависимость.
+    # Существующая долговая нагрузка частично связана с размером кредита,
+    # прибыльностью и скрытым качеством бизнеса (слабые компании
+    # набирают больше долгов). Это условная синтетическая зависимость.
     debt_load = np.clip(
         rng.gamma(1.7, 0.35, n)
         + 0.45 * (amount / np.maximum(revenue, 1))
-        + 0.25 * (profit_margin < 0),
+        + 0.25 * (profit_margin < 0)
+        - 0.20 * business_quality,
         0,
         5,
     )
@@ -153,12 +164,14 @@ def generate_dataset(n: int = 24000, seed: int = 20261023) -> pd.DataFrame:
     )
     credit_history_months = np.clip(credit_history_months, 0, 300)
 
-    # Просрочки чаще встречаются у компаний с повышенной долговой нагрузкой.
+    # Просрочки чаще встречаются у компаний с повышенной долговой
+    # нагрузкой и низким качеством бизнеса (скрытый фактор).
     overdue_probability = sigmoid(
         -3.5
         + 0.75 * debt_load
         + 0.9 * (profit_margin < 0)
         + 0.5 * young_business
+        - 0.6 * business_quality
     )
 
     has_overdue = bernoulli(overdue_probability)
@@ -213,68 +226,57 @@ def generate_dataset(n: int = 24000, seed: int = 20261023) -> pd.DataFrame:
     )
 
     # ---------------------------------------------------------
-    # 3. Несколько сценариев дефолта
+    # 3. Целевая переменная: скрытый фактор + собственный шум.
     # ---------------------------------------------------------
+    # ВАЖНО: прежняя версия строила default_12m явными правилами по
+    # наблюдаемым признакам (if-else по убытку/просрочкам/налогам).
+    # Модель просто реверсила эту формулу, и метрики ничего не говорили
+    # о качестве скоринга. Теперь исход зависит от скрытого фактора
+    # скрытого фактора business_quality, который не попадает в датасет, и от
+    # неприводимого логистического шума. Наблюдаемые признаки —
+    # лишь зашумлённые следствия скрытого фактора, как в реальности.
 
-    # Сценарий A: финансовые проблемы.
     negative_profit = net_profit < 0
-    high_debt = debt_load > 0.65
     high_payment = payment_to_monthly_revenue > 0.35
 
-    p_financial = (
-            0.02
-            + 0.18 * negative_profit
-            + 0.12 * high_debt
-            + 0.10 * high_payment
-            + 0.12 * (negative_profit & high_debt)
-            + 0.08 * (negative_profit & high_payment)
+    # Интерцепт и шум подобраны так, чтобы синтетический PD был ~10%
+    # (реалистично для МСБ), а достижимый AUC ~0.70-0.72 — уровень
+    # реальных скоринговых моделей. AUC выше означает, что исход
+    # слишком предсказуем из наблюдаемых признаков, т.е. лейбл
+    # всё ещё «считывается» с данных.
+    logit_default = (
+            -3.0
+            - 0.85 * business_quality  # скрытый фактор
+            + 0.55 * (debt_load > 0.65)
+            + 0.45 * high_payment
+            + 0.40 * (overdue_days > 0)
+            + 0.30 * negative_profit
+            + 0.35 * (business_age_months < 18)
+            + 0.45 * unreliable
+            + 0.30 * (tax_debt > 0)
     )
 
-    # 2. Просрочки платежей
-    p_payment = (
-            0.01
-            + 0.10 * (overdue_days > 0)
-            + 0.15 * (overdue_days > 30)
-            + 0.20 * (overdue_days > 90)
-            + 0.08 * high_payment
-    )
+    # Неприводимый шум исхода: решения о дефолте не детерминированы.
+    # Именно этот шум делает задачу настоящей ML-задачей.
+    logit_default += rng.logistic(0.0, 0.7, n)
 
-    # 3. Налоговые и юридические риски
-    p_legal = (
-            0.005
-            + 0.12 * (tax_debt > 0)
-            + 0.10 * mass_address
-            + 0.18 * unreliable
-            + 0.10 * ((tax_debt > 0) & unreliable)
-    )
+    default_12m = (logit_default > 0).astype(int)
 
-    # 4. Риск прекращения деятельности
-    p_business = (
-            0.02
-            + 0.12 * (business_age_months < 12)
-            + 0.10 * (revenue_discrepancy > 0.25)
-            + 0.10 * negative_profit
-            + 0.12 * (~active)
-    )
+    # Label noise 3%: в реальных данных часть исходов ошибочна
+    # (ошибки учёта, споры о классификации дефолта).
+    flip = rng.random(n) < 0.03
+    default_12m = np.where(flip, 1 - default_12m, default_12m)
 
-    # Ограничиваем каждую вероятность диапазоном [0, 0.85].
-    p_financial = np.clip(p_financial, 0.005, 0.85)
-    p_payment = np.clip(p_payment, 0.005, 0.85)
-    p_legal = np.clip(p_legal, 0.005, 0.85)
-    p_business = np.clip(p_business, 0.005, 0.85)
-
-    # Объединяем несколько механизмов риска.
+    # Сценарии для отчётности: группируем по доминирующему наблюдаемому
+    # фактору. Это только аналитическая разметка, не механизм генерации.
     scenario_probabilities = np.column_stack([
-        p_financial,
-        p_payment,
-        p_legal,
-        p_business,
+        0.5 + 0.5 * negative_profit,
+        np.clip(overdue_days / 120.0, 0, 1),
+        np.clip((tax_debt > 0) * 0.5 + 0.5 * unreliable, 0, 1),
+        np.clip(0.5 + 0.5 * (business_age_months < 18), 0, 1),
     ])
 
-    p_default = 1.0 - np.prod(1.0 - scenario_probabilities, axis=1)
-
-    # Генерируем целевую переменную.
-    default_12m = rng.binomial(1, p_default)
+    p_default = sigmoid(logit_default)
 
     scenario_names = np.array([
         "financial_stress",
@@ -333,21 +335,26 @@ def generate_dataset(n: int = 24000, seed: int = 20261023) -> pd.DataFrame:
     # 5. Пропуски: null не заменяем нулём или False
     # ---------------------------------------------------------
 
-    missing_rates = {
-        "debt_load": 0.10,
-        "overdue_days": 0.07,
-        "credit_history_months": 0.12,
-        "tax_debt": 0.08,
-        "revenue_discrepancy": 0.10,
+    # Пропуски MNAR (missing not at random): вероятность пропуска
+    # зависит от самого риска — в реальности худшие данные там,
+    # где бизнес не ведёт учёт. Плюс базовый MCAR-уровень.
+    base_missing_rates = {
+        "debt_load": 0.04,
+        "overdue_days": 0.03,
+        "credit_history_months": 0.05,
+        "tax_debt": 0.03,
+        "revenue_discrepancy": 0.04,
         "industry": 0.04,
         "legal_form": 0.02,
         "collateral": 0.02,
-        "mass_address": 0.03,
-        "unreliable": 0.03,
+        "mass_address": 0.02,
+        "unreliable": 0.02,
     }
 
-    for col, rate in missing_rates.items():
-        mask = rng.random(n) < rate
+    for col, rate in base_missing_rates.items():
+        # Чем выше вероятность дефолта, тем чаще поле отсутствует.
+        mnar_extra = 0.10 * p_default
+        mask = rng.random(n) < (rate + mnar_extra)
         df[col] = df[col].astype(object)
         df.loc[mask, col] = np.nan
 
